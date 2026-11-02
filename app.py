@@ -12,7 +12,6 @@ def carregar_dados():
     try:
       with open(ARQUIVO_DADOS, "r", encoding="utf-8") as f:
         dados = json.load(f)
-        # Garante que novas chaves existam se o JSON for antigo
         if "montagens_pcs" not in dados:
           dados["montagens_pcs"] = []
         return dados
@@ -353,11 +352,31 @@ elif menu == "📈 Investimentos":
 
       if inv_para_excluir != "-- Selecione --":
         if st.button("🗑️ Excluir Investimento Selecionado", type="primary"):
+          # Pega o valor do investimento antes de excluir para devolver ao caixa
+          inv_removido = next(
+              i for i in dados["investimentos"] if i["ativo"] == inv_para_excluir
+          )
+          valor_devolver = inv_removido["valor"]
+
+          # Remove o investimento da lista
           dados["investimentos"] = [
               i for i in dados["investimentos"] if i["ativo"] != inv_para_excluir
           ]
+
+          # Devolve o dinheiro para o caixa e registra no histórico
+          dados["caixa"] += valor_devolver
+          dados["historico_caixa"].append({
+              "data": datetime.now().strftime("%d/%m/%Y %H:%M"),
+              "tipo": "ENTRADA (Resgate de Investimento)",
+              "descricao": f"Resgate/Estorno de {inv_para_excluir}",
+              "valor": valor_devolver,
+          })
+
           salvar_dados(dados)
-          st.success("Investimento removido com sucesso!")
+          st.success(
+              f"Investimento removido e R$ {valor_devolver:.2f} devolvidos ao"
+              " caixa!"
+          )
           st.rerun()
 
       st.markdown("---")
@@ -427,4 +446,51 @@ elif menu == "🍔 Gastos Diários":
           "Categoria", ["Comida", "Gasolina", "Lazer", "Contas/Casa", "Outros"]
       )
       desc_g = st.text_input("Descrição (ex: Almoço, Posto)")
-      val_g = st.number_
+      val_g = st.number_input("Valor (R$)", min_value=0.0, format="%.2f")
+      if st.form_submit_button("Adicionar Gasto") and val_g > 0:
+        dados["caixa"] -= val_g
+        dados["historico_caixa"].append({
+            "data": datetime.now().strftime("%d/%m/%Y %H:%M"),
+            "tipo": f"SAÍDA ({cat})",
+            "descricao": desc_g,
+            "valor": val_g,
+        })
+        dados["gastos_diarios"].append({
+            "data": datetime.now().strftime("%d/%m/%Y"),
+            "categoria": cat,
+            "descricao": desc_g,
+            "valor": val_g,
+        })
+        salvar_dados(dados)
+        st.success("Gasto registrado com sucesso!")
+        st.rerun()
+
+# ==================== 7. DADOS & BACKUP ====================
+elif menu == "⚙️ Dados & Backup":
+  st.title("⚙️ Gerenciamento de Dados e Exportação")
+  st.markdown(
+      "Aqui você pode baixar seus relatórios ou verificar o arquivo de dados do"
+      " sistema."
+  )
+
+  if dados["estoque"]:
+    st.subheader("📥 Exportar Estoque para CSV")
+    df_estoque = pd.DataFrame(dados["estoque"])
+    csv_estoque = df_estoque.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="Baixar Relatório de Estoque (CSV)",
+        data=csv_estoque,
+        file_name="estoque_pecas.csv",
+        mime="text/csv",
+    )
+
+  if dados["historico_caixa"]:
+    st.subheader("📥 Exportar Histórico Financeiro para CSV")
+    df_caixa = pd.DataFrame(dados["historico_caixa"])
+    csv_caixa = df_caixa.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="Baixar Histórico de Caixa (CSV)",
+        data=csv_caixa,
+        file_name="historico_caixa.csv",
+        mime="text/csv",
+    )
