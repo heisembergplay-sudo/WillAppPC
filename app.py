@@ -12,6 +12,7 @@ def carregar_dados():
     try:
       with open(ARQUIVO_DADOS, "r", encoding="utf-8") as f:
         dados = json.load(f)
+        # Garante que novas chaves existam se o JSON for antigo
         if "montagens_pcs" not in dados:
           dados["montagens_pcs"] = []
         return dados
@@ -265,12 +266,9 @@ elif menu == "🖥️ Montagem de PCs":
 elif menu == "💰 Caixa & Gráficos":
   st.title("💰 Controle de Caixa e Gráficos Financeiros")
 
-  tab1, tab2, tab3, tab4 = st.tabs([
-      "➕ Entradas/Saídas",
-      "📜 Histórico",
-      "📊 Gráficos de Movimentação",
-      "⚠️ Zerar / Ajustar Caixa",
-  ])
+  tab1, tab2, tab3 = st.tabs(
+      ["➕ Entradas/Saídas", "📜 Histórico", "📊 Gráficos de Movimentação"]
+  )
 
   with tab1:
     col_e, col_s = st.columns(2)
@@ -317,3 +315,163 @@ elif menu == "💰 Caixa & Gráficos":
     if not dados["historico_caixa"]:
       st.info("Nenhuma movimentação.")
     else:
+      if st.button("🗑️ Limpar Todo o Histórico", type="secondary"):
+        dados["historico_caixa"] = []
+        salvar_dados(dados)
+        st.success("Histórico limpo!")
+        st.rerun()
+      st.dataframe(dados["historico_caixa"], use_container_width=True)
+
+  with tab3:
+    st.subheader("Gráficos de Entradas e Saídas")
+    if dados["historico_caixa"]:
+      df_hist = pd.DataFrame(dados["historico_caixa"])
+      st.bar_chart(df_hist.set_index("data")["valor"])
+    else:
+      st.info("Sem dados suficientes para gerar gráficos.")
+
+# ==================== 5. INVESTIMENTOS ====================
+elif menu == "📈 Investimentos":
+  st.title("📈 Controle de Investimentos")
+
+  total_inv = sum(i["valor"] for i in dados["investimentos"])
+  st.metric("Total Investido", f"R$ {total_inv:.2f}")
+
+  tab1, tab2 = st.tabs(
+      ["📋 Listar / Excluir Investimentos", "➕ Novo Investimento"]
+  )
+
+  with tab1:
+    if not dados["investimentos"]:
+      st.info("Nenhum investimento cadastrado.")
+    else:
+      ativos_lista = [i["ativo"] for i in dados["investimentos"]]
+      inv_para_excluir = st.selectbox(
+          "Selecione o investimento para remover",
+          ["-- Selecione --"] + ativos_lista,
+      )
+
+      if inv_para_excluir != "-- Selecione --":
+        if st.button("🗑️ Excluir Investimento Selecionado", type="primary"):
+          dados["investimentos"] = [
+              i for i in dados["investimentos"] if i["ativo"] != inv_para_excluir
+          ]
+          salvar_dados(dados)
+          st.success("Investimento removido com sucesso!")
+          st.rerun()
+
+      st.markdown("---")
+      st.dataframe(dados["investimentos"], use_container_width=True)
+
+  with tab2:
+    with st.form("form_inv"):
+      ativo = st.text_input("Ativo (ex: Tesouro, Ações, Cripto)")
+      tipo_inv = st.text_input("Tipo (Renda Fixa, Variável...)")
+      val_inv = st.number_input(
+          "Valor Investido (R$)", min_value=0.0, format="%.2f"
+      )
+      if st.form_submit_button("Registrar Investimento") and val_inv > 0:
+        dados["caixa"] -= val_inv
+        dados["historico_caixa"].append({
+            "data": datetime.now().strftime("%d/%m/%Y %H:%M"),
+            "tipo": "SAÍDA (Investimento)",
+            "descricao": f"Aporte em {ativo}",
+            "valor": val_inv,
+        })
+        dados["investimentos"].append({
+            "ativo": ativo,
+            "tipo": tipo_inv,
+            "valor": val_inv,
+            "data": datetime.now().strftime("%d/%m/%Y"),
+        })
+        salvar_dados(dados)
+        st.success("Investimento registrado e debitado do caixa!")
+        st.rerun()
+
+# ==================== 6. GASTOS DIÁRIOS ====================
+elif menu == "🍔 Gastos Diários":
+  st.title("🍔 Gastos do Dia a Dia (Lazer, Comida, Gasolina)")
+
+  total_g = sum(g["valor"] for g in dados["gastos_diarios"])
+  st.metric("Total de Gastos", f"R$ {total_g:.2f}")
+
+  tab1, tab2 = st.tabs(["📋 Listar / Excluir Gastos", "➕ Adicionar Gasto"])
+
+  with tab1:
+    if not dados["gastos_diarios"]:
+      st.info("Nenhum gasto registrado.")
+    else:
+      descricoes_gastos = [
+          f"{g['data']} - {g['categoria']}: {g['descricao']} (R$ {g['valor']:.2f})"
+          for g in dados["gastos_diarios"]
+      ]
+      gasto_escolhido = st.selectbox(
+          "Selecione o gasto que deseja remover",
+          ["-- Selecione --"] + descricoes_gastos,
+      )
+
+      if gasto_escolhido != "-- Selecione --":
+        if st.button("🗑️ Excluir Gasto Selecionado", type="primary"):
+          indice = descricoes_gastos.index(gasto_escolhido)
+          removido = dados["gastos_diarios"].pop(indice)
+          salvar_dados(dados)
+          st.success(f"Gasto '{removido['descricao']}' excluído com sucesso!")
+          st.rerun()
+
+      st.markdown("---")
+      st.dataframe(dados["gastos_diarios"], use_container_width=True)
+
+  with tab2:
+    with st.form("form_gasto"):
+      cat = st.selectbox(
+          "Categoria", ["Comida", "Gasolina", "Lazer", "Contas/Casa", "Outros"]
+      )
+      desc_g = st.text_input("Descrição (ex: Almoço, Posto)")
+      val_g = st.number_input("Valor (R$)", min_value=0.0, format="%.2f")
+      if st.form_submit_button("Adicionar Gasto") and val_g > 0:
+        dados["caixa"] -= val_g
+        dados["historico_caixa"].append({
+            "data": datetime.now().strftime("%d/%m/%Y %H:%M"),
+            "tipo": f"SAÍDA ({cat})",
+            "descricao": desc_g,
+            "valor": val_g,
+        })
+        dados["gastos_diarios"].append({
+            "data": datetime.now().strftime("%d/%m/%Y"),
+            "categoria": cat,
+            "descricao": desc_g,
+            "valor": val_g,
+        })
+        salvar_dados(dados)
+        st.success("Gasto registrado com sucesso!")
+        st.rerun()
+
+# ==================== 7. DADOS & BACKUP ====================
+elif menu == "⚙️ Dados & Backup":
+  st.title("⚙️ Gerenciamento de Dados e Exportação")
+  st.markdown(
+      "Aqui você pode baixar seus relatórios ou verificar o arquivo de dados do"
+      " sistema."
+  )
+
+  if dados["estoque"]:
+    st.subheader("📥 Exportar Estoque para CSV")
+    df_estoque = pd.DataFrame(dados["estoque"])
+    csv_estoque = df_estoque.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="Baixar Relatório de Estoque (CSV)",
+        data=csv_estoque,
+        file_name="estoque_pecas.csv",
+        mime="text/csv",
+    )
+
+  if dados["historico_caixa"]:
+    st.subheader("📥 Exportar Histórico Financeiro para CSV")
+    df_caixa = pd.DataFrame(dados["historico_caixa"])
+    csv_caixa = df_caixa.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="Baixar Histórico de Caixa (CSV)",
+        data=csv_caixa,
+        file_name="historico_caixa.csv",
+        mime="text/csv",
+    )
